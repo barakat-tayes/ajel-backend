@@ -36,6 +36,8 @@ router.post("/", verifyRestaurant, async (req, res) => {
     };
     if (province) notifyDriversByProvince(province, "new_order", payload);
     else notifyDrivers("new_order", payload);
+    // Keep all open restaurant sessions in sync instantly.
+    notifyUser("restaurant", req.user.id, "new_order", payload);
     notifyAdmins("new_order_created", { orderId: insert.insertId, orderNumber });
 
     res.status(201).json({ message: "Order created", orderId: insert.insertId, orderNumber });
@@ -110,6 +112,7 @@ router.put("/:id/cancel", verifyRestaurant, async (req, res) => {
     if (!orders.length) return res.status(404).json({ error: "Order not found" });
     if (orders[0].status !== "pending") return res.status(400).json({ error: "Cannot cancel after acceptance" });
     await pool.query("UPDATE orders SET status = 'cancelled' WHERE id = ?", [req.params.id]);
+    notifyUser("restaurant", req.user.id, "order_cancelled", { orderId: Number(req.params.id) });
     notifyAdmins("order_cancelled", { orderId: req.params.id });
     res.json({ message: "Cancelled" });
   } catch (e) {

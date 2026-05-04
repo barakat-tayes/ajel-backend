@@ -171,7 +171,7 @@ router.post("/register/driver", async(req, res) => {
 
         const hashedPassword = await bcrypt.hash(cleanPassword, 10);
         await pool.query(
-            "INSERT INTO drivers (username, password, name, phone, vehicle_type, vehicle_plate, province, account_status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')", [username, hashedPassword, name, phone.trim(), vehicle_type, vehicle_plate, province]
+            "INSERT INTO drivers (username, password, name, phone, vehicle_type, vehicle_plate, province, account_status, status, current_order_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'available', NULL)", [username, hashedPassword, name, phone.trim(), vehicle_type, vehicle_plate, province]
         );
         notifyAdmins("new_join_request", {
             userType: "driver",

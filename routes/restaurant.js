@@ -47,12 +47,13 @@ router.get("/orders", verifyRestaurant, async(req, res) => {
             query += " AND o.status = ?";
             params.push(status);
         }
+        const dateExpr = "DATE(CASE WHEN o.status IN ('delivered','returned') AND o.delivered_at IS NOT NULL THEN o.delivered_at ELSE o.created_at END)";
         if (start_date) {
-            query += " AND DATE(o.created_at) >= ?";
+            query += ` AND ${dateExpr} >= ?`;
             params.push(start_date);
         }
         if (end_date) {
-            query += " AND DATE(o.created_at) <= ?";
+            query += ` AND ${dateExpr} <= ?`;
             params.push(end_date);
         }
 
@@ -114,7 +115,7 @@ router.get("/stats", verifyRestaurant, async(req, res) => {
 // Current due amount since last settlement (admin per-order fee * delivered orders since last settlement)
 router.get("/due-summary", verifyRestaurant, async(req, res) => {
     try {
-        const [[adminRow]] = await pool.query("SELECT per_order_fee FROM admins WHERE id = 1 LIMIT 1");
+        const [[adminRow]] = await pool.query("SELECT per_order_fee FROM admins ORDER BY id ASC LIMIT 1");
         const perOrderFee = Number(adminRow?.per_order_fee || 0);
         const [[restRow]] = await pool.query("SELECT last_settlement_at FROM restaurants WHERE id = ?", [req.user.id]);
         const lastSettlementAt = restRow?.last_settlement_at || null;
@@ -129,14 +130,21 @@ router.get("/due-summary", verifyRestaurant, async(req, res) => {
         const completedOrdersCount = Number(countRow?.completed_count || 0);
         const grossDueAmount = completedOrdersCount * perOrderFee;
 
-        let paidQuery = "SELECT COALESCE(SUM(settled_amount),0) AS paid_amount FROM restaurant_settlements WHERE restaurant_id = ?";
-        const paidParams = [req.user.id];
-        if (lastSettlementAt) {
-            paidQuery += " AND settled_at > ?";
-            paidParams.push(lastSettlementAt);
+        let paidAmount = 0;
+        try {
+            let paidQuery = "SELECT COALESCE(SUM(settled_amount),0) AS paid_amount FROM restaurant_settlements WHERE restaurant_id = ?";
+            const paidParams = [req.user.id];
+            if (lastSettlementAt) {
+                paidQuery += " AND settled_at > ?";
+                paidParams.push(lastSettlementAt);
+            }
+            const [[paidRow]] = await pool.query(paidQuery, paidParams);
+            paidAmount = Number(paidRow?.paid_amount || 0);
+        } catch (e) {
+            // In case settlement history table is missing in some environments, keep app running.
+            if (e?.code !== "ER_NO_SUCH_TABLE") throw e;
+            paidAmount = 0;
         }
-        const [[paidRow]] = await pool.query(paidQuery, paidParams);
-        const paidAmount = Number(paidRow?.paid_amount || 0);
 
         const dueAmount = Math.max(grossDueAmount - paidAmount, 0);
         const dueUnitsRaw = perOrderFee > 0 ? dueAmount / perOrderFee : 0;
