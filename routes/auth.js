@@ -3,6 +3,7 @@ const router = express.Router();
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const { pool } = require("../config/database");
+const { notifyAdmins } = require("../config/socket");
 
 const getTableByType = (userType) => {
     if (userType === "admin") return "admins";
@@ -141,6 +142,13 @@ router.post("/register/restaurant", async(req, res) => {
         await pool.query(
             "INSERT INTO restaurants (username, password, name, owner_name, phone, address, province, location_lat, location_lng, location_link, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')", [username, hashedPassword, name, owner_name, phone.trim(), address, province, location_lat || null, location_lng || null, location_link || null]
         );
+        notifyAdmins("new_join_request", {
+            userType: "restaurant",
+            phone: phone.trim(),
+            name,
+            owner_name,
+            province,
+        });
         res.status(201).json({ message: "تم إرسال طلب التسجيل بنجاح" });
     } catch {
         res.status(500).json({ error: "تعذر التسجيل، تحقق من رقم الهاتف" });
@@ -165,6 +173,13 @@ router.post("/register/driver", async(req, res) => {
         await pool.query(
             "INSERT INTO drivers (username, password, name, phone, vehicle_type, vehicle_plate, province, account_status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')", [username, hashedPassword, name, phone.trim(), vehicle_type, vehicle_plate, province]
         );
+        notifyAdmins("new_join_request", {
+            userType: "driver",
+            phone: phone.trim(),
+            name,
+            province,
+            vehicle_type,
+        });
         res.status(201).json({ message: "تم إرسال طلب التسجيل بنجاح" });
     } catch {
         res.status(500).json({ error: "تعذر التسجيل، تحقق من رقم الهاتف" });

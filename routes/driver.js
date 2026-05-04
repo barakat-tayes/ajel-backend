@@ -58,16 +58,25 @@ router.post("/accept-order/:orderId", verifyDriver, async (req, res) => {
     const [driverRows] = await conn.query("SELECT * FROM drivers WHERE id = ? FOR UPDATE", [req.user.id]);
     if (!driverRows.length) {
       await conn.rollback();
-      return res.status(404).json({ error: "?????? ??? ?????" });
+      return res.status(404).json({ error: "السائق غير موجود" });
     }
     const driver = driverRows[0];
     if (driver.status === "busy") {
+      // Idempotent success: already busy on this same order
+      if (Number(driver.current_order_id) === Number(orderId)) {
+        const [sameOrderRows] = await conn.query("SELECT status, driver_id FROM orders WHERE id = ? FOR UPDATE", [orderId]);
+        const sameOrder = sameOrderRows[0];
+        if (sameOrder && sameOrder.status === "accepted" && Number(sameOrder.driver_id) === Number(req.user.id)) {
+          await conn.commit();
+          return res.json({ message: "تم قبول الطلبية مسبقًا", orderId: Number(orderId), status: "accepted" });
+        }
+      }
       await conn.rollback();
-      return res.status(400).json({ error: "???? ????? ??? ???????" });
+      return res.status(400).json({ error: "لا يمكنك قبول طلبية جديدة لأنك مشغول حاليًا" });
     }
     if (driver.account_status !== "active") {
       await conn.rollback();
-      return res.status(403).json({ error: "????? ??? ???" });
+      return res.status(403).json({ error: "حساب السائق غير مفعل" });
     }
 
     const [orderRows] = await conn.query(
@@ -79,16 +88,20 @@ router.post("/accept-order/:orderId", verifyDriver, async (req, res) => {
     );
     if (!orderRows.length) {
       await conn.rollback();
-      return res.status(404).json({ error: "?? ????? ??? ??????? ?? ??? ??????" });
+      return res.status(404).json({ error: "الطلبية غير موجودة أو تم حذفها" });
     }
     const order = orderRows[0];
     if (order.status !== "pending") {
+      if (order.status === "accepted" && Number(order.driver_id) === Number(req.user.id)) {
+        await conn.commit();
+        return res.json({ message: "تم قبول الطلبية مسبقًا", orderId: Number(orderId), status: "accepted" });
+      }
       await conn.rollback();
-      return res.status(400).json({ error: "??????? ??? ?????" });
+      return res.status(400).json({ error: `الطلبية في حالة غير صالحة للقبول (${order.status})` });
     }
     if (driver.province && order.restaurant_province && driver.province !== order.restaurant_province) {
       await conn.rollback();
-      return res.status(403).json({ error: "?? ???? ???? ??? ?? ?????? ??????" });
+      return res.status(403).json({ error: "لا يمكن قبول طلبية من محافظة مختلفة" });
     }
 
     const [rejected] = await conn.query(
@@ -97,7 +110,7 @@ router.post("/accept-order/:orderId", verifyDriver, async (req, res) => {
     );
     if (rejected.length) {
       await conn.rollback();
-      return res.status(403).json({ error: "?? ???????? ?? ??? ???????" });
+      return res.status(403).json({ error: "لقد رفضت هذه الطلبية مسبقًا" });
     }
 
     const [claimOrder] = await conn.query(
@@ -106,7 +119,7 @@ router.post("/accept-order/:orderId", verifyDriver, async (req, res) => {
     );
     if (!claimOrder?.affectedRows) {
       await conn.rollback();
-      return res.status(409).json({ error: "??????? ?? ??? ?????" });
+      return res.status(409).json({ error: "الطلبية لم تعد متاحة" });
     }
 
     const [setBusy] = await conn.query(
@@ -115,7 +128,7 @@ router.post("/accept-order/:orderId", verifyDriver, async (req, res) => {
     );
     if (!setBusy?.affectedRows) {
       await conn.rollback();
-      return res.status(409).json({ error: "???? ????? ??? ???????" });
+      return res.status(409).json({ error: "تعذر تحديث حالة السائق، حاول مرة أخرى" });
     }
 
     await conn.commit();
@@ -126,7 +139,7 @@ router.post("/accept-order/:orderId", verifyDriver, async (req, res) => {
       driverPhone: driver.phone,
     });
     notifyAdmins("order_accepted", { orderId, driverId: req.user.id, driverName: driver.name });
-    res.json({ message: "?? ???? ???????", orderId });
+    res.json({ message: "تم قبول الطلبية بنجاح", orderId: Number(orderId), status: "accepted" });
   } catch (error) {
     if (conn) {
       try { await conn.rollback(); } catch {}
