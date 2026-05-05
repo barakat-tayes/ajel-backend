@@ -36,7 +36,8 @@ router.put("/profile", verifyDriver, async (req, res) => {
 router.get("/current-order", verifyDriver, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT o.*, r.name as restaurant_name, r.address as restaurant_address, r.phone as restaurant_phone
+      `SELECT o.*, r.name as restaurant_name, r.address as restaurant_address, r.phone as restaurant_phone,
+              r.location_lat AS restaurant_location_lat, r.location_lng AS restaurant_location_lng, r.location_link AS restaurant_location_link
        FROM orders o
        JOIN restaurants r ON o.restaurant_id = r.id
        WHERE o.driver_id = ? AND o.status IN ('accepted', 'picked_up')`,

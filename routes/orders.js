@@ -90,7 +90,8 @@ router.get("/available", verifyDriver, async (req, res) => {
     const [[driver]] = await pool.query("SELECT province FROM drivers WHERE id = ?", [req.user.id]);
     const province = driver?.province || null;
     const [rows] = await pool.query(
-      `SELECT o.*, r.name restaurant_name, r.address restaurant_address, r.phone restaurant_phone, r.province restaurant_province
+      `SELECT o.*, r.name restaurant_name, r.address restaurant_address, r.phone restaurant_phone, r.province restaurant_province,
+              r.location_lat AS restaurant_location_lat, r.location_lng AS restaurant_location_lng, r.location_link AS restaurant_location_link
        FROM orders o
        JOIN restaurants r ON r.id = o.restaurant_id
        WHERE o.status = 'pending'
