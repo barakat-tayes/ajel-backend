@@ -95,7 +95,7 @@ router.get("/available", verifyDriver, async (req, res) => {
        FROM orders o
        JOIN restaurants r ON r.id = o.restaurant_id
        WHERE o.status = 'pending'
-         AND r.status = 'active'
+         AND r.status <> 'suspended'
          AND (? IS NULL OR r.province = ?)
          AND o.id NOT IN (SELECT order_id FROM order_rejected_drivers WHERE driver_id = ?)
        ORDER BY o.id DESC`,
