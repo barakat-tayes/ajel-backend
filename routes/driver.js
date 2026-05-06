@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { pool } = require("../config/database");
 const { verifyDriver } = require("../middleware/auth");
-const { notifyUser, notifyAdmins } = require("../config/socket");
+const { notifyUser, notifyAdmins, notifyDrivers, notifyDriversByProvince } = require("../config/socket");
 const bcrypt = require("bcryptjs");
 
 // Get driver profile
@@ -133,6 +133,17 @@ router.post("/accept-order/:orderId", verifyDriver, async (req, res) => {
     }
 
     await conn.commit();
+    const acceptedPayload = {
+      orderId: Number(orderId),
+      driverId: req.user.id,
+      driverName: driver.name,
+      province: order.restaurant_province || null,
+    };
+    if (order.restaurant_province) {
+      notifyDriversByProvince(order.restaurant_province, "order_accepted", acceptedPayload);
+    } else {
+      notifyDrivers("order_accepted", acceptedPayload);
+    }
     notifyUser("restaurant", order.restaurant_id, "order_accepted", {
       orderId,
       driverId: req.user.id,
@@ -169,13 +180,29 @@ router.post("/reject-order/:orderId", verifyDriver, async (req, res) => {
 router.put("/order/:orderId/cancel-reservation", verifyDriver, async (req, res) => {
   try {
     const { orderId } = req.params;
-    const [order] = await pool.query("SELECT * FROM orders WHERE id = ? AND driver_id = ?", [orderId, req.user.id]);
+    const [order] = await pool.query(
+      `SELECT o.*, r.province AS restaurant_province
+       FROM orders o
+       JOIN restaurants r ON r.id = o.restaurant_id
+       WHERE o.id = ? AND o.driver_id = ?`,
+      [orderId, req.user.id]
+    );
     if (!order.length) return res.status(404).json({ error: "الطلبية غير موجودة" });
     if (order[0].status !== "accepted") {
       return res.json({ message: `لا يمكن إلغاء الحجز الآن (${order[0].status})`, orderId, status: order[0].status });
     }
     await pool.query("UPDATE orders SET status='pending', driver_id=NULL, accepted_at=NULL WHERE id=?", [orderId]);
     await pool.query("UPDATE drivers SET status='available', current_order_id=NULL WHERE id=?", [req.user.id]);
+    const returnedPayload = {
+      orderId: Number(orderId),
+      status: "pending",
+      province: order[0].restaurant_province || null,
+    };
+    if (order[0].restaurant_province) {
+      notifyDriversByProvince(order[0].restaurant_province, "order_returned", returnedPayload);
+    } else {
+      notifyDrivers("order_returned", returnedPayload);
+    }
     notifyUser("restaurant", order[0].restaurant_id, "order_returned", { orderId, status: "pending" });
     res.json({ message: "تم إلغاء الحجز", orderId, status: "pending" });
   } catch (error) {
