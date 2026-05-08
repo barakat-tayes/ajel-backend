@@ -804,6 +804,9 @@ router.delete("/drivers/:id", verifyAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "معرف السائق غير صالح" });
+    notifyUser("driver", id, "account_deleted", {
+      message: "تم حذف حسابك من قبل الإدارة",
+    });
     await pool.query(
       "UPDATE orders SET driver_id=NULL, status='pending', accepted_at=NULL, picked_up_at=NULL, delivered_at=NULL WHERE driver_id=? AND status IN ('accepted','picked_up')",
       [id],
@@ -833,6 +836,9 @@ router.delete("/restaurants/:id", verifyAdmin, async (req, res) => {
         .json({ error: "لا يمكن حذف حساب التاجر لوجود طلبات نشطة أو معلقة" });
     }
 
+    notifyUser("restaurant", id, "account_deleted", {
+      message: "تم حذف حسابك من قبل الإدارة",
+    });
     await pool.query(
       "DELETE FROM restaurant_settlements WHERE restaurant_id=?",
       [id],

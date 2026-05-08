@@ -3,6 +3,7 @@ const router = express.Router();
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const { pool } = require("../config/database");
+const { notifyAdmins } = require("../config/socket");
 
 const getTableByType = (userType) => {
   if (userType === "admin") return "admins";
@@ -13,6 +14,11 @@ const getTableByType = (userType) => {
 
 const normalizeDigits = (value = "") => String(value).replace(/[^\d]/g, "");
 const normalizePassword = (value = "") => String(value).trim();
+const hasArabicChars = (value = "") =>
+  /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(
+    String(value),
+  );
+const hasWhitespace = (value = "") => /\s/.test(String(value));
 const normalizeIp = (req) =>
   String(
     req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown",
@@ -187,6 +193,11 @@ router.post("/register/restaurant", async (req, res) => {
     if (!location_lat || !location_lng) {
       return res.status(400).json({ error: "يرجى تحديد موقع المطعم" });
     }
+    if (hasArabicChars(cleanPassword) || hasWhitespace(cleanPassword)) {
+      return res.status(400).json({
+        error: "كلمة المرور يجب أن تكون بدون أحرف عربية وبدون فراغات ",
+      });
+    }
     if (username.length !== 11)
       return res.status(400).json({ error: "رقم المستخدم يجب أن يكون 11 رقم" });
     if (await phoneTakenAnywhere(username)) {
@@ -211,6 +222,13 @@ router.post("/register/restaurant", async (req, res) => {
         location_link || null,
       ],
     );
+    notifyAdmins("new_join_request", {
+      userType: "restaurant",
+      name,
+      phone: phone.trim(),
+      province,
+      autoApproved: true,
+    });
     res.status(201).json({ message: "تم إنشاء الحساب بنجاح" });
   } catch {
     res.status(500).json({ error: "تعذر التسجيل، تحقق من رقم الهاتف" });
@@ -238,6 +256,12 @@ router.post("/register/driver", async (req, res) => {
       return res
         .status(400)
         .json({ error: "رقم المستخدم يجب أن يكون 11 خانة" });
+    if (hasArabicChars(cleanPassword) || hasWhitespace(cleanPassword)) {
+      return res.status(400).json({
+        error:
+          "كلمة المرور يجب أن تكون بدون أحرف عربية وبدون فراغات (كلمة واحدة متصلة)",
+      });
+    }
     if (await phoneTakenAnywhere(username)) {
       return res
         .status(409)
@@ -257,6 +281,13 @@ router.post("/register/driver", async (req, res) => {
         province,
       ],
     );
+    notifyAdmins("new_join_request", {
+      userType: "driver",
+      name,
+      phone: phone.trim(),
+      province,
+      autoApproved: true,
+    });
     res.status(201).json({ message: "تم إنشاء الحساب بنجاح" });
   } catch {
     res.status(500).json({ error: "تعذر التسجيل، تحقق من رقم الهاتف" });
